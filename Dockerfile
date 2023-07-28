@@ -1,33 +1,33 @@
 FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu22.04 as build
-ARG RUN_UID="1000" \
-    APPLICATION_STATE_PATH="/data"
-ENV RUN_UID=$RUN_UID \
-    APPLICATION_STATE_PATH=$APPLICATION_STATE_PATH \
+ARG APPLICATION_STATE_PATH="/data"
+ENV APPLICATION_STATE_PATH=$APPLICATION_STATE_PATH \
     CONTAINER_MODEL_PATH=$APPLICATION_STATE_PATH/model \
     CONTAINER_SESSIONS_PATH=$APPLICATION_STATE_PATH/exllama_sessions
 
 RUN apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y ninja-build python3 python3-pip && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y nginx ca-certificates wget ninja-build python3 python3-pip && \
     rm -rf /var/lib/apt/lists/*
 
-# Setup user which will run the service and create application state directory
-RUN if [ ${RUN_UID} -ne 0 ] ; then useradd -m -u $RUN_UID user ; fi \
-    && mkdir -p $APPLICATION_STATE_PATH \
+# Create application state directories
+RUN mkdir -p $APPLICATION_STATE_PATH \
     && mkdir -p $CONTAINER_MODEL_PATH \
-    && mkdir -p $CONTAINER_SESSIONS_PATH \
-    && chown -R $RUN_UID $APPLICATION_STATE_PATH
-USER $RUN_UID
+    && mkdir -p $CONTAINER_SESSIONS_PATH
 
-COPY --chown=$RUN_UID . /app
+# Set some environment variables. PYTHONUNBUFFERED keeps Python from buffering our standard
+# output stream, which means that logs can be delivered to the user quickly. PYTHONDONTWRITEBYTECODE
+# keeps Python from writing the .pyc files which are unnecessary in this case. We also update
+# PATH so that the train and serve programs are found when the container is invoked.
+ENV PYTHONUNBUFFERED=TRUE
+ENV PYTHONDONTWRITEBYTECODE=TRUE
+
+COPY . /app
 
 WORKDIR /app
 
-# Create application state directory and install python packages
+# Install python packages
 RUN pip install --upgrade pip setuptools wheel \
     && pip install -r requirements.txt \
     && pip install -r requirements-web.txt
 
-USER root
-
 STOPSIGNAL SIGINT
-ENTRYPOINT ["/bin/bash", "-c", "/app/entrypoint.sh $0 $@"]
+ENTRYPOINT ["python3", "serve"]
